@@ -1,11 +1,15 @@
-import Cart from '../models/cartModel.js';
-import { StatusCodes } from 'http-status-codes';
-import { verifyRole } from '../services/helper.js';
+import Cart from "../models/cartModel.js";
+import { StatusCodes } from "http-status-codes";
+import { verifyRole } from "../services/helper.js";
+import loggerObject from "../services/loggerObject.js";
+import CustomError from "../services/ErrorHandler.js";
+import logActivity from "../services/logActivity.js";
+const { OPERATIONS, loggerStatus, METHODS } = loggerObject;
 
 export const updateCart = async (req, res, next) => {
     try {
         if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
+            throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         }
         const cartData = await Cart.findOne({ userId: req.id });
         if (req.body.quantity === 0) {
@@ -23,39 +27,102 @@ export const updateCart = async (req, res, next) => {
             },
             { returnOriginal: false }
         );
-        res.status(StatusCodes.ACCEPTED).json({
+        logActivity(loggerStatus.INFO, updatedData, 'Cart Data Updated', null, OPERATIONS.CART.MODIFY, StatusCodes.ACCEPTED, METHODS.PUT);
+        return res.status(StatusCodes.ACCEPTED).json({
             message: 'success',
             data: updatedData
         });
     } catch (error) {
-        next({
-            status: StatusCodes.NOT_ACCEPTABLE,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.CART.MODIFY, error.status, METHODS.PUT);
+        next(error);
     }
 };
 
 export const getCartData = async (req, res, next) => {
     try {
-        if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
-        }
-        const cartData = await Cart.findOne({ userId: req.id }).populate({ path: medicines.medicineId });
-        res.status(StatusCodes.ACCEPTED).json({
+        if (!verifyRole(['user'], req.role)) throw new CustomError('User not authorised');
+
+        const cartData = await Cart.findOne({ userId: req.id }).populate({
+            path: 'cartItems.medicineId'
+        });
+        logActivity(loggerStatus.INFO, cartData, 'fetch Customer cart data', null, OPERATIONS.CART.RETRIEVE_BY_ID, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).json({
             message: 'success',
             data: cartData
         });
     } catch (error) {
-        next({
-            status: StatusCodes.INTERNAL_SERVER_ERROR,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.CART.RETRIEVE_BY_ID, error.status, METHODS.GET);
+        next(error);
     }
 };
 
+export const addCartData = async (req, res, next) => {
+    try {
+        if (!verifyRole(['user'], req.role)) throw new CustomError('User not authorised');
+
+        const initialCartData = await Cart.findOne({ userId: req.id });
+        const updatedCart = req.body.cartArr;
+        const initialCart = initialCartData.cartItems;
+        for (let i = 0; i < updatedCart.length; i++) {
+            const index = initialCart.findIndex((item) => item.medicineId === updatedCart[i].medicineId);
+            if (index === -1) {
+                initialCart.push(updatedCart[i]);
+            } else {
+                initialCart[index].quantity += updatedCart[i].quantity;
+            }
+        }
+        const cartData = await Cart.findOneAndUpdate({ userId: req.id }, { cartItems: initialCart }, { returnOriginal: false });
+        logActivity(loggerStatus.INFO, cartData, 'fetch Customer cart data', null, OPERATIONS.CART.RETRIEVE_BY_ID, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).json({
+            message: 'success',
+            data: cartData
+        });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.CART.RETRIEVE_BY_ID, error.status, METHODS.GET);
+        next(error);
+    }
+};
+
+export const reorderItems = async (req, res, next) => {
+    try {
+        if (!verifyRole(['user'], req.role))
+            throw new CustomError('User not authorised');
+        const updatedCart = req.body.cartArr;
+        const initialCart=[];
+        for (let i = 0; i < updatedCart.length; i++) {
+                initialCart.push(updatedCart[i])
+        }
+        const cartData = await Cart.findOneAndUpdate({ userId: req.id }, { cartItems: initialCart }, { returnOriginal: false });
+        logActivity(
+            loggerStatus.INFO,
+            cartData,
+            'fetch Customer cart data',
+            null,
+            OPERATIONS.CART.RETRIEVE_BY_ID,
+            StatusCodes.ACCEPTED,
+            METHODS.GET
+        );
+        return res.status(StatusCodes.ACCEPTED).json({
+            message: 'success',
+            data: cartData
+        });
+    } catch (error) {
+        logActivity(
+            loggerStatus.ERROR,
+            null,
+            error.message,
+            error,
+            OPERATIONS.CART.RETRIEVE_BY_ID,
+            error.status,
+            METHODS.GET
+        );
+        next(error);
+    }
+}
+
 export const wrongUrl = (req, res) => {
-    res.status(StatusCodes.BAD_REQUEST).json({
-        data: null,
-        message: 'Wrong url'
-    });
+  res.status(StatusCodes.BAD_REQUEST).json({
+    data: null,
+    message: "Wrong url",
+  });
 };

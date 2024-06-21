@@ -1,7 +1,11 @@
-import jwt from 'jsonwebtoken';
-import dotenv from 'dotenv';
-import { StatusCodes } from 'http-status-codes';
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+import { StatusCodes } from "http-status-codes";
+import CustomError from "../services/ErrorHandler.js";
+import logActivity from "../services/logActivity.js";
+import loggerObject from "../services/loggerObject.js";
 
+const { OPERATIONS, loggerStatus, METHODS } = loggerObject;
 dotenv.config();
 
 const secretKey = process.env.SECRET_KEY;
@@ -10,22 +14,23 @@ const validateToken = async (req, res, next) => {
     try {
         let token;
         let authHeader = req.headers.Authorization || req.headers.authorization;
-        
+
         if (authHeader && authHeader.startsWith('Bearer')) {
             token = authHeader.split(' ')[1];
             jwt.verify(token, secretKey, (error, decoded) => {
                 if (error) {
-                    throw new Error('User is not authorized');
+                    throw new CustomError(StatusCodes.UNAUTHORIZED, 'User is not authorized');
                 }
                 req.id = decoded.id;
                 req.role = decoded.role;
                 next();
             });
         } else {
-            throw new Error('Token is missing!!!');
+            throw new CustomError(StatusCodes.BAD_REQUEST, 'Token is missing!!!');
         }
     } catch (error) {
-        next({ status: StatusCodes.UNAUTHORIZED, message: error.message });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.AUTHENTICATION, error.status);
+        next(error);
     }
 };
 

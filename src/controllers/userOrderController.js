@@ -1,21 +1,26 @@
-import UserOrder from '../models/userOrderModel.js';
-import Cart from '../models/cartModel.js';
-import { StatusCodes } from 'http-status-codes';
-import Pharmacy from '../models/prarmaDataModel.js';
-import Address from '../models/addressModel.js';
-import { verifyRole } from '../services/helper.js';
-import Quotation from '../models/quotationModel.js';
+import UserOrder from "../models/userOrderModel.js";
+import Cart from "../models/cartModel.js";
+import { StatusCodes } from "http-status-codes";
+import Pharmacy from "../models/prarmaDataModel.js";
+import Address from "../models/addressModel.js";
+import { verifyRole } from "../services/helper.js";
+import Quotation from "../models/quotationModel.js";
+import loggerObject from "../services/loggerObject.js";
+import logActivity from "../services/logActivity.js";
+import CustomError from '../services/ErrorHandler.js';
+
+const { OPERATIONS, loggerStatus, METHODS } = loggerObject;
 
 export const addOrder = async (req, res, next) => {
     try {
-        if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['user'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         const userId = req.id;
         const files = req.files;
         const prescriptions = files !== undefined ? files.map((item) => `prescriptions/${item.filename}`) : '';
         const cartData = await Cart.findOne({ userId });
-        if (cartData.cartItems.length === 0 && req.files.length === 0) throw new Error('No items in the cart! Unable to place order');
+        if (cartData.cartItems.length === 0 && req.files.length === 0) {
+            throw new CustomError(StatusCodes.BAD_REQUEST, 'No items in the cart! Unable to place order');
+        }
         const address = await Address.findOne({
             userId,
             _id: req.body.addressId
@@ -29,22 +34,19 @@ export const addOrder = async (req, res, next) => {
         });
         await newOrder.save();
         await Cart.findOneAndUpdate({ userId }, { cartItems: [] }, { new: true });
-        res.status(StatusCodes.OK).json({
+        logActivity(loggerStatus.INFO, newOrder, 'order created successfully', null, OPERATIONS.USER_ORDER.CREATE, StatusCodes.ACCEPTED, METHODS.POST);
+        return res.status(StatusCodes.ACCEPTED).json({
             mesage: 'Order placed successfully'
         });
-    } catch (e) {
-        next({
-            status: StatusCodes.CONFLICT,
-            message: e.message
-        });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.CREATE, error.status, METHODS.POST);
+        next(error);
     }
 };
 
 export const closeOrder = async (req, res, next) => {
     try {
-        if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['user'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         const userId = req.id;
         const orderId = req.query.orderId;
         const response = await UserOrder.findOneAndUpdate(
@@ -54,64 +56,61 @@ export const closeOrder = async (req, res, next) => {
             },
             { new: true }
         );
-        res.status(StatusCodes.OK).send({
+        logActivity(loggerStatus.INFO, response, 'order closed successfully', null, OPERATIONS.USER_ORDER.MODIFY, StatusCodes.ACCEPTED, METHODS.PUT);
+        return res.status(StatusCodes.ACCEPTED).send({
             message: 'Order Successfully closed',
             data: response
         });
-    } catch (e) {
-        next({ status: StatusCodes.CONFLICT, message: e.message });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.MODIFY, error.status, METHODS.PUT);
+        next(error);
     }
 };
 
 export const deleteOrder = async (req, res, next) => {
     try {
-        if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['user'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         const userId = req.id;
         const orderId = req.query.orderId;
-        if (!orderId) throw new Error('please enter the "orderId" in query');
+        if (!orderId) throw new CustomError(StatusCodes.BAD_REQUEST, 'please enter the "orderId" in query');
         const response = await UserOrder.findByIdAndDelete({
             userId,
             _id: orderId
         });
-        res.status(StatusCodes.OK).send({
+        logActivity(loggerStatus.INFO, response, 'order deleted successfully', null, OPERATIONS.USER_ORDER.REMOVE, StatusCodes.ACCEPTED, METHODS.DELETE);
+        return res.status(StatusCodes.ACCEPTED).send({
             message: 'Order Successfully deleted',
             data: response
         });
-    } catch (e) {
-        next({ status: StatusCodes.CONFLICT, message: e.message });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.REMOVE, error.status, METHODS.DELETE);
+        next(error);
     }
 };
 
 export const getOrder = async (req, res, next) => {
     try {
         if (!verifyRole(['user', 'pharmacist', 'admin'], req.role)) {
-            throw new Error('User not authorised');
+            throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         }
         const userId = req.id;
         const orderId = req.query.orderId;
-        if (!orderId) throw new Error('please give orderId in query parameter');
-        let data;
-        if (req.role === 'admin') {
-            data = await UserOrder.findOne({ _id: orderId }).populate({
-                path: 'medicines.medicineId'
-            });
-        } else {
-            data = await UserOrder.findOne({ _id: orderId, userId }).populate({
-                path: 'medicines.medicineId'
-            });
-        }
-        res.status(StatusCodes.OK).send({ message: 'Success', data });
-    } catch (e) {
-        next({ status: StatusCodes.CONFLICT, message: e.message });
+        if (!orderId) throw new CustomError(StatusCodes.BAD_REQUEST, 'please give orderId in query parameter');
+        const data = await UserOrder.findOne({ _id: orderId }).populate({
+            path: 'medicines.medicineId'
+        });
+        logActivity(loggerStatus.INFO, data, 'order fetched successfully', null, OPERATIONS.USER_ORDER.RETRIEVE_BY_ID, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).send({ message: 'Success', data });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.RETRIEVE_BY_ID, error.status, METHODS.GET);
+        next(error);
     }
 };
 
 export const getAll = async (req, res, next) => {
     try {
         if (!verifyRole(['admin'], req.role)) {
-            throw new Error('User not authorised');
+            throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         }
         const total = await UserOrder.find().count();
         const data = await UserOrder.find()
@@ -119,21 +118,24 @@ export const getAll = async (req, res, next) => {
                 path: 'medicines.medicineId'
             })
             .populate({ path: 'userId' })
+            .sort({createdAt:-1})
             .skip(req.query.page * 10)
             .limit(10);
-        res.status(StatusCodes.OK).send({
+        logActivity(loggerStatus.INFO, data, 'all orders fetched', null, OPERATIONS.USER_ORDER.RETRIEVE, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).send({
             message: 'Success',
             data: { orderData: data, total: total }
         });
     } catch (error) {
-        next({ status: StatusCodes.CONFLICT, message: error.message });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.RETRIEVE, error.status, METHODS.GET);
+        next(error);
     }
 };
 
 export const userGetAll = async (req, res, next) => {
     try {
         if (!verifyRole(['user'], req.role)) {
-            throw new Error('User not authorised');
+            throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         }
         const userId = req.id;
         const data = await UserOrder.find({ userId })
@@ -141,20 +143,20 @@ export const userGetAll = async (req, res, next) => {
                 path: 'medicines.medicineId'
             })
             .populate({ path: 'userId' });
-        res.status(StatusCodes.OK).send({
+        logActivity(loggerStatus.INFO, data, 'all orders fetched for users', null, OPERATIONS.USER_ORDER.RETRIEVE, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).send({
             message: 'Success',
-            data
+            data:data.reverse()
         });
-    } catch (e) {
-        next({ status: StatusCodes.CONFLICT, message: e.message });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.RETRIEVE, error.status, METHODS.GET);
+        next(error);
     }
 };
 
 export const pharmacistGetAll = async (req, res, next) => {
     try {
-        if (!verifyRole(['pharmacist'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['pharmacist'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         const id = req.id;
         const pharmacy = await Pharmacy.findOne({ pharmacistId: id });
         const coordinates = pharmacy.location.coordinates;
@@ -165,7 +167,8 @@ export const pharmacistGetAll = async (req, res, next) => {
                     $minDistance: 0,
                     $maxDistance: 10000
                 }
-            }
+            },
+            status: 'pending'
         })
             .populate({
                 path: 'medicines.medicineId'
@@ -178,11 +181,13 @@ export const pharmacistGetAll = async (req, res, next) => {
         });
         const myIds = quotationOrderIds.map((item) => item.toString());
         const response = data.filter((order) => !myIds.includes(order._id.toString()));
-        res.status(StatusCodes.OK).send({
+        logActivity(loggerStatus.INFO, response, 'orders fetched for pharmacist', null, OPERATIONS.USER_ORDER.RETRIEVE, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).send({
             message: 'Success',
             data: response
         });
-    } catch (e) {
-        next({ status: StatusCodes.CONFLICT, message: e.message });
+    } catch (error) {
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.USER_ORDER.RETRIEVE, error.status, METHODS.GET);
+        next(error);
     }
 };

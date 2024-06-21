@@ -1,11 +1,17 @@
-import Admin from '../models/adminModel.js';
-import { StatusCodes } from 'http-status-codes';
-import { verifyRole } from '../services/helper.js';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import Admin from "../models/adminModel.js";
+import { StatusCodes } from "http-status-codes";
+import { verifyRole } from "../services/helper.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import adminUpdateDetails from "../validator/adminUpdateDetails.js";
+import updatePassword from "../validator/passwordDetails.js";
+import loggerObject from "../services/loggerObject.js";
+import CustomError from "../services/ErrorHandler.js";
+import logActivity from "../services/logActivity.js";
+const { OPERATIONS, loggerStatus, METHODS } = loggerObject;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,11 +19,10 @@ const __dirname = path.dirname(__filename);
 export const adminLogin = async (req, res, next) => {
     try {
         const adminData = await Admin.findOne({ email: req.body.email });
-        if (!adminData) throw new Error('Email not found!');
+        if (!adminData) throw new CustomError(StatusCodes.NOT_FOUND, 'Email not found!');
         const checkPassword = await bcrypt.compare(req.body.password, adminData.password);
-        if (!checkPassword) {
-            throw new Error('Invalid password!');
-        }
+        if (!checkPassword) throw new CustomError(StatusCodes.BAD_REQUEST, 'Invalid password!');
+
         const secretKey = process.env.SECRET_KEY;
         const accessToken = jwt.sign(
             {
@@ -25,8 +30,9 @@ export const adminLogin = async (req, res, next) => {
                 role: 'admin'
             },
             secretKey,
-            { expiresIn: '1d' }
+            { expiresIn: '30d' }
         );
+        logActivity(loggerStatus.INFO, null, 'Admin Successfully logged in', null, OPERATIONS.ADMIN.RETRIEVE, StatusCodes.ACCEPTED, METHODS.POST);
         return res.status(StatusCodes.ACCEPTED).json({
             data: {
                 token: accessToken,
@@ -35,28 +41,25 @@ export const adminLogin = async (req, res, next) => {
             message: 'Succesfully Signed in'
         });
     } catch (error) {
-        next({
-            status: StatusCodes.NOT_ACCEPTABLE,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.ADMIN.RETRIEVE, error.status, METHODS.POST);
+        next(error);
     }
 };
 
 export const getAdminDetails = async (req, res, next) => {
     try {
         if (!verifyRole(['admin'], req.role)) {
-            throw new Error('User not authorised');
+            throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
         }
-        let adminData = await Admin.findById(req.id);
-        res.status(StatusCodes.ACCEPTED).json({
+        const adminData = await Admin.findById(req.id);
+        logActivity(loggerStatus.INFO, adminData, 'Admin details fetched', null, OPERATIONS.ADMIN.RETRIEVE_BY_ID, StatusCodes.ACCEPTED, METHODS.GET);
+        return res.status(StatusCodes.ACCEPTED).json({
             message: 'success',
             data: adminData
         });
     } catch (error) {
-        next({
-            status: StatusCodes.NOT_ACCEPTABLE,
-            message: error.message
-        });
+        logActivity(loggerStatus.INFO, null, error.message, error, OPERATIONS.ADMIN.RETRIEVE_BY_ID, error.status, METHODS.GET);
+        next(error);
     }
 };
 
@@ -71,26 +74,26 @@ export const registerAdmin = async (req, res, next) => {
             address: { ...req.body.address }
         });
         await adminData.save();
+        // logActivity(loggerStatus.INFO, null, error.message, error, OPERATIONS.ADMIN.CREATE, StatusCodes.ACCEPTED, METHODS.POST);
         return res.status(StatusCodes.ACCEPTED).json({
             data: { adminData: adminData },
             message: 'Succesfully Registered'
         });
     } catch (error) {
-        next({
-            status: StatusCodes.NOT_ACCEPTABLE,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.ADMIN.CREATE, error.status, METHODS.POST);
+        next(error);
     }
 };
 
 export const updateAdminDetails = async (req, res, next) => {
     try {
-        if (!verifyRole(['admin'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['admin'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
+        adminUpdateDetails.parse(req.body);
         const adminData = await Admin.findByIdAndUpdate(req.id, req.body, {
             returnOriginal: false
         });
+        logActivity(loggerStatus.INFO, adminData, 'Admin details updated', null, OPERATIONS.ADMIN.MODIFY, StatusCodes.ACCEPTED, METHODS.PUT);
+
         return res.status(StatusCodes.OK).json({
             message: 'success',
             data: {
@@ -106,22 +109,19 @@ export const updateAdminDetails = async (req, res, next) => {
             }
         });
     } catch (error) {
-        next({
-            status: StatusCodes.INTERNAL_SERVER_ERROR,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error, OPERATIONS.ADMIN.MODIFY, error.status, METHODS.PUT);
+        next(error);
     }
 };
 
 export const updateAdminPassword = async (req, res, next) => {
     try {
-        if (!verifyRole(['admin'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['admin'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
+        updatePassword.parse(req.body);
         let matchOldPassword = await Admin.findById(req.id);
         const checkPassword = await bcrypt.compare(req.body.password, matchOldPassword.password);
 
-        if (!checkPassword) throw new Error("Old password doesn't match");
+        if (!checkPassword) throw new CustomError("Old password doesn't match");
         const hashedPassword = await bcrypt.hash(req.body.newPassword, 10);
         const adminData = await Admin.findByIdAndUpdate(
             req.id,
@@ -130,27 +130,26 @@ export const updateAdminPassword = async (req, res, next) => {
                 returnOriginal: false
             }
         );
-        res.status(StatusCodes.ACCEPTED).json({
+        logActivity(loggerStatus.INFO, adminData, 'Admin password updated', null, OPERATIONS.ADMIN.MODIFY, StatusCodes.ACCEPTED, METHODS.PUT);
+        return res.status(StatusCodes.ACCEPTED).json({
             message: 'success',
             data: adminData.password
         });
     } catch (error) {
-        next({
-            status: StatusCodes.INTERNAL_SERVER_ERROR,
-            message: error.message
-        });
-    }
+        logActivity(loggerStatus.ERROR, null, error.message, null, OPERATIONS.ADMIN.MODIFY, error.status, METHODS.PUT);
+
+    next(error);
+  }
 };
 
 export const adminProfileImage = async (req, res, next) => {
     try {
-        if (!verifyRole(['admin'], req.role)) {
-            throw new Error('User not authorised');
-        }
+        if (!verifyRole(['admin'], req.role)) throw new CustomError(StatusCodes.UNAUTHORIZED, 'User not authorised');
+
         const unmodifiedData = await Admin.findById(req.id);
         if (!unmodifiedData.image.includes('defaultImage')) {
             fs.unlink(path.join(__dirname, `../assets/${unmodifiedData.image}`), function (err) {
-                if (err) throw err;
+                if (err) console.log(err);
             });
         }
         const adminData = await Admin.findByIdAndUpdate(
@@ -162,15 +161,10 @@ export const adminProfileImage = async (req, res, next) => {
                 returnOriginal: false
             }
         );
+        logActivity(loggerStatus.INFO, adminData, 'Admin profile image updated', null, OPERATIONS.ADMIN.MODIFY, StatusCodes.ACCEPTED, METHODS.PUT);
         return res.status(StatusCodes.OK).json({ message: 'success', data: adminData.image });
     } catch (error) {
-        fs.unlink(path.join(__dirname, `../assets/${unmodifiedData.image}`), function (err) {
-            if (err) throw err;
-        });
-
-        next({
-            status: StatusCodes.INTERNAL_SERVER_ERROR,
-            message: error.message
-        });
+        logActivity(loggerStatus.ERROR, null, error.message, error.status, OPERATIONS.ADMIN.MODIFY, error.status, METHODS.PUT);
+        next(error);
     }
 };

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 const { Schema } = mongoose;
 
 const quotationSchema = new Schema(
@@ -49,13 +49,13 @@ const quotationSchema = new Schema(
         status: {
             type: String,
             required: true,
-            enum: ['PENDING', 'ACCEPTED', 'DECLINED'],
-            default: 'PENDING'
+            enum: ['pending', 'confirmed', 'declined'],
+            default: 'pending'
         }
     },
-    { timestamps: true }
+  { timestamps: true },
 );
 
-const Quotation = mongoose.model('quotation', quotationSchema);
+const Quotation = mongoose.model("quotation", quotationSchema);
 
 export default Quotation;
